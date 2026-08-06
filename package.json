@@ -5,9 +5,8 @@
   "private": true,
   "scripts": {
     "start": "bash scripts/start.sh",
-    "stop": "bash scripts/stop.sh",
     "dev": "bash scripts/start.sh",
-    "dev:concurrently": "concurrently \"npm run dev:ocr\" \"npm run dev:server\" \"npm run dev:client\"",
+    "stop": "bash scripts/stop.sh",
     "dev:client": "npm run dev --prefix client",
     "dev:server": "npm run dev --prefix server",
     "dev:ocr": "cd ocr-service && python3 main.py",

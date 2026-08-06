@@ -6,13 +6,18 @@ const serverRoot = path.resolve(__dirname, '../../');
 
 dotenv.config({ path: path.join(projectRoot, '.env') });
 dotenv.config({ path: path.join(projectRoot, '.env.local') });
-dotenv.config({ path: path.join(serverRoot, '.env') });
+const serverDotenv = dotenv.config({ path: path.join(serverRoot, '.env') });
 dotenv.config({ path: path.join(serverRoot, '.env.local') });
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+const serverEnvPort = serverDotenv.parsed ? parseInt(serverDotenv.parsed.PORT, 10) : NaN;
+
 const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: parseInt(process.env.PORT, 10) || 5000,
+  // The platform injects PORT for the Vite preview port (e.g. 5173). The API
+  // server must bind to its own configured port (server/.env PORT or API_PORT)
+  // so the Vite proxy at localhost:5000 can reach it.
+  PORT: parseInt(process.env.API_PORT, 10) || serverEnvPort || 5000,
   MONGODB_URI: process.env.MONGODB_URI,
   JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-change-in-production',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '24h',

@@ -106,13 +106,14 @@ npm run dev
 bash scripts/start.sh
 ```
 
-The startup script (`scripts/start.sh`) launches each service **independently** in the background. If one service crashes (e.g., OCR service), the frontend and backend continue running. The frontend shows a warning banner if any required service is unavailable.
+The startup script (`scripts/start.sh`) launches each service as an **independent, detached daemon** — each runs in its own process session, so all three keep running even after the script or the terminal/session exits. The script verifies each service is healthy, prints a summary, and returns. If one service crashes (e.g., the OCR service), the frontend and backend continue running. Re-run `npm run dev` any time to restart everything (stale processes are stopped first). The frontend shows a warning banner if any required service is unavailable.
 
 ### Stop all services
 
 ```bash
+npm run stop
+# or
 bash scripts/stop.sh
-# or press Ctrl+C in the start.sh terminal
 ```
 
 ### Start services individually
@@ -338,9 +339,8 @@ The NLP service processes raw OCR text using regex patterns to extract:
 |--------|-------------|
 | Script | Description |
 |--------|-------------|
-| `npm run dev` / `npm run start` | Run all three services independently (recommended) |
+| `npm run dev` / `npm run start` | Start all three services as detached daemons (recommended) |
 | `npm run stop` | Stop all running services |
-| `npm run dev:concurrently` | Run all three services via concurrently (legacy) |
 | `npm run dev:client` | Run Vite dev server only |
 | `npm run dev:server` | Run Express server with nodemon only |
 | `npm run dev:ocr` | Run PaddleOCR microservice only |
@@ -350,7 +350,7 @@ The NLP service processes raw OCR text using regex patterns to extract:
 
 ## Startup Architecture
 
-Each service runs as an **independent background process**. If one fails, the others continue running.
+Each service runs as an **independent, fully detached daemon** (launched with `setsid`, so it survives the invoking script, terminal, and session). `scripts/start.sh` starts the three daemons, waits for each to become healthy, prints a summary, and exits — it has **no foreground monitor and no kill-on-exit trap**, which is what previously caused every service to die whenever the session ended. PID files in `.pids/` let `stop.sh` shut each daemon down cleanly.
 
 ```
 ┌──────────────────────────────────────────────────┐

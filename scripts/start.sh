@@ -1,7 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
-# Invoice Extractor — Resilient Startup Script
-# Starts all three services independently so a crash in one does not kill others.
+# Invoice Extractor — Start Script (detached daemons)
+#
+# Starts PaddleOCR, the Express API, and the Vite frontend as independent,
+# fully detached background daemons. Each daemon runs in its own session, so it
+# keeps running even after this script (or the terminal/session) exits.
+#
+#   - If one service crashes, the others keep running.
+#   - Restart any or all services by simply running this script again
+#     (stale processes on the service ports are stopped first).
+#   - Stop everything with:  bash scripts/stop.sh   (or `npm run stop`)
+#   - Logs: /tmp/ocr.log, /tmp/server.log, /tmp/vite.log
 # =============================================================================
 
 set -euo pipefail
@@ -9,175 +18,105 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PID_DIR="${PROJECT_DIR}/.pids"
+mkdir -p "$PID_DIR"
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-log_info()  { echo -e "${CYAN}[INFO]${NC}  $1"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC}    $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-cleanup() {
-  log_info "Shutting down all services..."
-  if [ -f "$SCRIPT_DIR/stop.sh" ]; then
-    bash "$SCRIPT_DIR/stop.sh"
-  fi
-}
-trap cleanup EXIT INT TERM
-
-# Create PID directory
-mkdir -p "$PID_DIR"
+log_info() { echo -e "${CYAN}[INFO]${NC}  $1"; }
+log_ok()   { echo -e "${GREEN}[OK]${NC}    $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC}  $1"; }
+log_err()  { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ---------------------------------------------------------------------------
-# Kill any leftover processes from previous runs
+# Free our ports so a stale process can never block a restart.
 # ---------------------------------------------------------------------------
-if [ -f "${PID_DIR}/ocr.pid" ]; then
-  OLD_PID=$(cat "${PID_DIR}/ocr.pid" 2>/dev/null || echo "")
-  [ -n "$OLD_PID" ] && kill "$OLD_PID" 2>/dev/null && log_info "Killed leftover OCR process ($OLD_PID)"
-  rm -f "${PID_DIR}/ocr.pid"
-fi
-if [ -f "${PID_DIR}/server.pid" ]; then
-  OLD_PID=$(cat "${PID_DIR}/server.pid" 2>/dev/null || echo "")
-  [ -n "$OLD_PID" ] && kill "$OLD_PID" 2>/dev/null && log_info "Killed leftover server process ($OLD_PID)"
-  rm -f "${PID_DIR}/server.pid"
-fi
-if [ -f "${PID_DIR}/client.pid" ]; then
-  OLD_PID=$(cat "${PID_DIR}/client.pid" 2>/dev/null || echo "")
-  [ -n "$OLD_PID" ] && kill "$OLD_PID" 2>/dev/null && log_info "Killed leftover client process ($OLD_PID)"
-  rm -f "${PID_DIR}/client.pid"
-fi
-
-# Kill any processes still occupying our ports
 for PORT in 8765 5000 5173; do
   PID=$(lsof -ti :"$PORT" 2>/dev/null || true)
   if [ -n "$PID" ]; then
+    log_warn "Port $PORT already in use (PID $PID) — stopping it first"
     kill "$PID" 2>/dev/null || true
     sleep 0.5
-    log_info "Freed port $PORT (was PID $PID)"
+    kill -9 "$PID" 2>/dev/null || true
   fi
 done
-
 sleep 1
 
 echo ""
-log_info "========================================"
+log_info "============================================"
 log_info " Invoice Extractor — Starting Services"
-log_info "========================================"
+log_info "============================================"
 echo ""
 
-# ---------------------------------------------------------------------------
-# 1. Start PaddleOCR Service (port 8765)
-# ---------------------------------------------------------------------------
-log_info "Starting PaddleOCR service..."
-cd "$PROJECT_DIR/ocr-service"
-nohup python3 main.py > /tmp/ocr-service.log 2>&1 &
-OCR_PID=$!
-echo "$OCR_PID" > "${PID_DIR}/ocr.pid"
-log_info "  PID: $OCR_PID | Port: 8765 | Log: /tmp/ocr-service.log"
+# start_daemon <logfile> <cwd> <command...>
+# Launches the command detached (setsid = new session, immune to parent
+# process-group kills). The real daemon PID is discovered later via the port it
+# listens on, because setsid may fork and `$!` would record the short-lived
+# parent.
+start_daemon() {
+  local logfile="$1" cwd="$2"
+  shift 2
+  (cd "$cwd" && setsid nohup "$@" >>"$logfile" 2>&1 &)
+  log_info "  Launched: $*  | log: $logfile"
+}
 
-# Wait for OCR to be ready (with timeout)
-OCR_READY=false
-for i in $(seq 1 30); do
-  if curl -s --max-time 2 http://localhost:8765/health > /dev/null 2>&1; then
-    OCR_READY=true
-    log_ok "PaddleOCR ready (${i}s)"
-    break
-  fi
-  sleep 1
-done
+# record_pid <pidfile> <port> — writes the real listening PID once the service
+# is up. This is what `stop.sh` uses to shut the daemon down.
+record_pid() {
+  local pidfile="$1" port="$2" pid i
+  for i in $(seq 1 15); do
+    pid=$(lsof -ti :"$port" 2>/dev/null | head -1 || true)
+    if [ -n "$pid" ]; then
+      echo "$pid" >"$pidfile"
+      log_info "  PID recorded: $pid (port $port)"
+      return 0
+    fi
+    sleep 1
+  done
+  log_warn "Could not determine PID for port $port"
+  return 1
+}
 
-if [ "$OCR_READY" != "true" ]; then
-  log_warn "PaddleOCR not yet responding — continuing startup (may need model download)"
-  log_warn "  Check /tmp/ocr-service.log for progress"
-fi
+# wait_ready <name> <timeout_sec> <health_url> — returns 0 when the service
+# responds; any HTTP response counts (a 503 health check still proves the
+# server is listening).
+wait_ready() {
+  local name="$1" timeout="$2" url="$3" i
+  for i in $(seq 1 "$timeout"); do
+    if curl -s --max-time 2 -o /dev/null "$url"; then
+      log_ok "$name ready (${i}s)"
+      return 0
+    fi
+    sleep 1
+  done
+  log_err "$name did not respond at $url within ${timeout}s — see its log for details"
+  return 1
+}
 
-# ---------------------------------------------------------------------------
-# 2. Start Express Backend (port 5000)
-# ---------------------------------------------------------------------------
-log_info "Starting Express backend..."
-cd "$PROJECT_DIR/server"
-nohup node server.js > /tmp/server.log 2>&1 &
-SERVER_PID=$!
-echo "$SERVER_PID" > "${PID_DIR}/server.pid"
-log_info "  PID: $SERVER_PID | Port: 5000 | Log: /tmp/server.log"
+start_daemon /tmp/ocr.log "$PROJECT_DIR/ocr-service" python3 main.py
+wait_ready "PaddleOCR (:8765)" 30 http://localhost:8765/health || true
+record_pid "$PID_DIR/ocr.pid" 8765 || true
 
-SERVER_READY=false
-for i in $(seq 1 15); do
-  if curl -s --max-time 2 http://localhost:5000/api/health > /dev/null 2>&1; then
-    SERVER_READY=true
-    log_ok "Express backend ready (${i}s)"
-    break
-  fi
-  sleep 1
-done
+start_daemon /tmp/server.log "$PROJECT_DIR/server" node server.js
+wait_ready "Express API (:5000)" 20 http://localhost:5000/api/health || true
+record_pid "$PID_DIR/server.pid" 5000 || true
 
-if [ "$SERVER_READY" != "true" ]; then
-  log_error "Express backend failed to start. Check /tmp/server.log"
-  tail -20 /tmp/server.log
-  exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# 3. Start Vite Frontend (port 5173)
-# ---------------------------------------------------------------------------
-log_info "Starting Vite frontend..."
-cd "$PROJECT_DIR/client"
-nohup npx vite --host 0.0.0.0 --port 5173 > /tmp/vite.log 2>&1 &
-CLIENT_PID=$!
-echo "$CLIENT_PID" > "${PID_DIR}/client.pid"
-log_info "  PID: $CLIENT_PID | Port: 5173 | Log: /tmp/vite.log"
-
-CLIENT_READY=false
-for i in $(seq 1 30); do
-  if curl -s --max-time 2 http://localhost:5173/ > /dev/null 2>&1; then
-    CLIENT_READY=true
-    log_ok "Vite frontend ready (${i}s)"
-    break
-  fi
-  sleep 1
-done
-
-if [ "$CLIENT_READY" != "true" ]; then
-  log_warn "Vite frontend may not be ready. Check /tmp/vite.log"
-fi
+start_daemon /tmp/vite.log "$PROJECT_DIR/client" npx vite --host 0.0.0.0 --port 5173
+wait_ready "Vite frontend (:5173)" 30 http://localhost:5173/ || true
+record_pid "$PID_DIR/client.pid" 5173 || true
 
 echo ""
-log_info "========================================"
-log_ok  " All Services Running"
-log_info "========================================"
+log_info "============================================"
+log_ok  " All services started as detached daemons"
+log_info "============================================"
 echo ""
 echo -e "  ${CYAN}Frontend:${NC}  http://localhost:5173"
 echo -e "  ${CYAN}Backend:${NC}   http://localhost:5000/api/health"
 echo -e "  ${CYAN}OCR:${NC}       http://localhost:8765/health"
 echo ""
 echo -e "  ${YELLOW}Stop all:${NC}   bash scripts/stop.sh"
+echo -e "  ${YELLOW}Restart:${NC}    run this script again (stale processes are stopped first)"
 echo ""
-
-# ---------------------------------------------------------------------------
-# Monitor — watch all processes; if one dies, log it but keep others running
-# ---------------------------------------------------------------------------
-log_info "Monitoring services (press Ctrl+C to stop all)..."
-echo ""
-
-while true; do
-  sleep 5
-  if ! kill -0 "$OCR_PID" 2>/dev/null; then
-    log_error "PaddleOCR service crashed (was PID $OCR_PID)"
-    log_error "  Check /tmp/ocr-service.log for details"
-  fi
-  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    log_error "Express backend crashed (was PID $SERVER_PID)"
-    log_error "  Check /tmp/server.log for details"
-    tail -10 /tmp/server.log 2>/dev/null | while read -r line; do log_error "  $line"; done
-    log_info "Frontend still running at http://localhost:5173"
-  fi
-  if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
-    log_error "Vite frontend crashed (was PID $CLIENT_PID)"
-    log_error "  Check /tmp/vite.log for details"
-  fi
-done
