@@ -69,7 +69,7 @@ function parseInvoice(rawText) {
     poNumber,
   };
 
-  const validated = applyValidation(result, cleaned);
+  const validated = applyValidation(result);
   logger.info(`NLP parsing complete: invoice #${validated.invoiceNumber || 'unknown'}`);
   return validated;
 }
@@ -141,9 +141,9 @@ function extractGstVatNumber(text) {
 }
 
 function extractGstRate(text) {
-  // CGST + SGST combined rate
-  const cgstRateMatch = text.match(/(?:CGST|CGST)\s+(\d+(?:\.\d+)?)\s*%/i);
-  const sgstRateMatch = text.match(/(?:SGST|SGST)\s+(\d+(?:\.\d+)?)\s*%/i);
+  // CGST + SGST combined rate (handles "CGST @9%" / "CGST 9%" / "CGST (9%)")
+  const cgstRateMatch = text.match(/(?:CGST)\s*[@(]?\s*(\d+(?:\.\d+)?)\s*%/i);
+  const sgstRateMatch = text.match(/(?:SGST)\s*[@(]?\s*(\d+(?:\.\d+)?)\s*%/i);
   const cgstPct = cgstRateMatch ? parseFloat(cgstRateMatch[1]) : null;
   const sgstPct = sgstRateMatch ? parseFloat(sgstRateMatch[1]) : null;
 
@@ -286,6 +286,13 @@ function extractCurrency(text) {
   if (/\bUSD\b/i.test(text) || /[$]/.test(text)) return 'USD';
   if (/\bINR\b/i.test(text) || /[₹]/.test(text) || /Rs\./.test(text)) return 'INR';
 
+  // European decimal format (3.505,00 / 701,00) implies EUR
+  if (/\d{1,3}(?:\.\d{3})+(?:,\d+)?/.test(text) || /\b\d+,\d{2}\b/.test(text)) return 'EUR';
+
+  // VAT registration country prefix (EU member states → EUR, GB → GBP)
+  const vatCountry = text.match(/\bVAT\s*(?:No\.?|Number|Registration|Reg\.?|ID)?\s*[:#]?\s*(GB|DE|FR|IT|ES|NL|BE|AT|PT|FI|IE|LU)\b/i);
+  if (vatCountry) return vatCountry[1].toUpperCase() === 'GB' ? 'GBP' : 'EUR';
+
   return 'INR';
 }
 
@@ -361,7 +368,7 @@ function isValidDate(year, month, day) {
 // Validation
 // ---------------------------------------------------------------------------
 
-function applyValidation(result, text) {
+function applyValidation(result) {
   const v = { ...result };
 
   const now = new Date();

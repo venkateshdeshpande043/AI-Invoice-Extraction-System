@@ -96,6 +96,16 @@ This launches:
 
 Navigate to http://localhost:5173/register and create your account. Then start uploading invoices!
 
+### 6. (Optional) Load demo data
+
+To explore the dashboard, history, vendors and payment pages with realistic data:
+
+```bash
+npm run seed
+```
+
+This creates a demo account (`demo@invoiceai.app` / `Demo12345`) with 32 invoices across 8 vendors, covering paid, partial, unpaid and overdue payment states plus all automatic categories. Run it again any time to reset the demo dataset.
+
 ## Running & Stopping Services
 
 ### Start all services (recommended)
@@ -180,15 +190,40 @@ curl http://localhost:8765/health
 | POST | `/api/invoices/upload` | Upload invoice file (multipart/form-data) | Yes |
 | GET | `/api/invoices` | List invoices (with search & pagination) | Yes |
 | GET | `/api/invoices/:id` | Get invoice details | Yes |
+| PATCH | `/api/invoices/:id/payment` | Record a payment `{ amountPaid, paidDate, paymentMethod }` | Yes |
 | DELETE | `/api/invoices/:id` | Delete an invoice | Yes |
 | GET | `/api/invoices/:id/export?format=json` | Export as JSON | Yes |
 | GET | `/api/invoices/:id/export?format=csv` | Export as CSV | Yes |
+| GET | `/api/invoices/export?format=csv` | Bulk-export the filtered list as CSV/JSON | Yes |
+| POST | `/api/invoices/generate` | Create a new invoice (Phase F) — totals recomputed server-side, saved with `source: 'generated'` | Yes |
+| GET | `/api/invoices/generate/next` | Suggest the next sequential invoice number | Yes |
+| GET | `/api/invoices/:id/pdf` | Download the invoice as a styled PDF (pdfkit) | Yes |
 
 ### Dashboard Endpoints
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| GET | `/api/dashboard/stats` | Get dashboard statistics | Yes |
+| GET | `/api/dashboard/stats` | Dashboard stats: totals, outstanding/paid/overdue, GST summary, monthly volume & cash-flow trends, top vendors, upcoming & overdue payments, recent uploads | Yes |
+
+### AI Endpoints (Phase G)
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/api/ai/ask` | Answer a natural-language question about the user's invoice data (`{ question }`). Rule-based intent detection → data resolution → formatted answer; LLM-swappable by design | Yes |
+| GET | `/api/ai/suggestions` | Starter question chips for the Ask UI | Yes |
+
+### Insights Endpoints (Phase G)
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/api/insights` | Rule-based observations over the user's invoices (high-value warnings, overdue, unusual tax, missing fields, vendor concentration, monthly summary, payment trends) | Yes |
+
+### Vendor Endpoints (Phase D)
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/api/vendors` | List vendors aggregated from invoices (search, sort, pagination) | Yes |
+| GET | `/api/vendors/:name` | Vendor summary + invoice history | Yes |
 
 ### Query Parameters for GET /api/invoices
 
@@ -197,6 +232,9 @@ curl http://localhost:8765/health
 | `search` | string | Search by invoice number or vendor name |
 | `vendor` | string | Filter by vendor name |
 | `status` | string | Filter by status (pending, processed, failed) |
+| `paymentStatus` | string | Filter by payment status (unpaid, partial, paid, overdue) |
+| `amountFrom` | number | Filter by minimum total amount |
+| `amountTo` | number | Filter by maximum total amount |
 | `dateFrom` | date | Filter invoices from this date (ISO 8601) |
 | `dateTo` | date | Filter invoices to this date (ISO 8601) |
 | `page` | number | Page number (default: 1) |
@@ -216,6 +254,9 @@ curl http://localhost:8765/health
   - Subtotal, tax, total amount, currency
 - **Search & Filter** — Search by keyword, filter by vendor, status, date range
 - **Export** — Download extracted data as JSON or CSV
+- **Invoice Generation (Phase F)** — Compose invoices in-app with seller/customer details, line items, GST, discounts, notes and payment terms; two document templates with a live preview; save to the same invoice store (tagged `source: 'generated'`) or download as a professional PDF
+- **Ask Invoice AI (Phase G)** — Natural-language Q&A over your real invoice data: outstanding totals, overdue / due-this-week invoices, top vendors, GST paid, monthly totals, spending by category, amount filters and more. Built as intent detection → data resolution → answer formatting so a real LLM can be plugged in later
+- **Insights (Phase G)** — The dashboard surfaces rule-based observations: high-value invoice warnings, overdue alerts, unusual tax, missing fields, vendor concentration, monthly summaries and payment trends
 - **Responsive UI** — Works on desktop, tablet, and mobile
 
 ## Project Structure
@@ -238,17 +279,27 @@ server/
 │   │   └── Invoice.js            # Invoice schema
 │   ├── controllers/
 │   │   ├── authController.js     # Auth handlers
-│   │   ├── invoiceController.js  # Invoice CRUD handlers
-│   │   └── dashboardController.js # Dashboard stats
+│   │   ├── invoiceController.js  # Invoice CRUD + generation/PDF handlers
+│   │   ├── dashboardController.js # Dashboard stats
+│   │   ├── aiController.js       # Ask Invoice AI (Phase G)
+│   │   └── insightController.js  # Insights (Phase G)
 │   ├── routes/
 │   │   ├── authRoutes.js
 │   │   ├── invoiceRoutes.js
 │   │   └── dashboardRoutes.js
 │   ├── services/
-│   │   ├── ocrService.js         # Google Vision API
+│   │   ├── ocrService.js         # PaddleOCR client
 │   │   ├── nlpService.js         # Regex parsing
 │   │   ├── storageService.js     # File storage abstraction
-│   │   └── exportService.js      # JSON/CSV export
+│   │   ├── exportService.js      # JSON/CSV export
+│   │   ├── validationService.js  # Cross-field validation (Phase E)
+│   │   ├── paymentService.js     # Payment/due-date tracking (Phase C)
+│   │   ├── duplicateService.js   # Duplicate detection (Phase E)
+│   │   ├── categorizationService.js # Automatic categorization (Phase E)
+│   │   ├── invoiceGenerationService.js # Totals + number suggestion (Phase F)
+│   │   ├── pdfService.js         # pdfkit PDF generation (Phase F)
+│   │   ├── askAiService.js       # Rule-based Q&A pipeline (Phase G)
+│   │   └── insightService.js     # Dashboard insights (Phase G)
 │   ├── storage/
 │   │   ├── index.js              # Driver factory
 │   │   ├── LocalStorageDriver.js # Local disk storage
@@ -345,6 +396,8 @@ The NLP service processes raw OCR text using regex patterns to extract:
 | `npm run dev:server` | Run Express server with nodemon only |
 | `npm run dev:ocr` | Run PaddleOCR microservice only |
 | `npm run install:all` | Install dependencies for root, client, and server |
+| `npm run seed` | Load demo data (demo@invoiceai.app / Demo12345) |
+| `npm run build` | Production build of the React frontend (`client/dist`) |
 | `npm run lint` | Run ESLint on both client and server |
 | `npm run format` | Run Prettier on both client and server |
 
@@ -386,6 +439,39 @@ npm run build --prefix client
 ```
 
 Configure your production environment variables and run `node server/server.js`. The OCR microservice must also be running alongside.
+
+## Testing
+
+### Unit & contract tests (service layer)
+
+```bash
+cd server
+npm test
+```
+
+Runs the Node test-runner suites for the payment service, duplicate detection, vendor aggregation and the validation engine, followed by the NLP extraction accuracy runner:
+
+```bash
+node tests/runTests.js --verbose   # field-wise accuracy report per scenario
+```
+
+The NLP runner evaluates 24 realistic OCR scenarios (multi-currency, HSN codes, European decimal formats, split GST, multi-page layouts) and reports field-wise accuracy.
+
+Unit suites cover the Phase C–G services: payment tracking, duplicate detection, vendor aggregation, validation engine, invoice-generation math, PDF generation, the Ask-AI intent/answer pipeline and the insight engine.
+
+### End-to-end API smoke tests
+
+With the services running, exercise the full upload → OCR → NLP → validate → pay → export → dashboard → vendors flow:
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+Phase F/G flow (generate → PDF → Ask AI → insights → duplicate rejection):
+
+```bash
+bash scripts/smoke-test-phase-fg.sh
+```
 
 ## Development Notes
 

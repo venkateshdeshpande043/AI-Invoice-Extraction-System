@@ -1,131 +1,180 @@
+"""Invoice Extractor — OCR microservice.
+
+FastAPI service that performs OCR on invoice images and PDFs.
+
+Engine strategy (in order of preference):
+  1. PaddleOCR (paddleocr) — the full framework, best accuracy.
+  2. RapidOCR (rapidocr_onnxruntime) — the same PP-OCR models running
+     on ONNX Runtime; much lighter to install, used as fallback.
+  3. If neither engine is installed, /ocr returns a clear 503 error
+     so the API can degrade gracefully.
+
+PDF handling:
+  - Text-based PDFs are extracted directly with pdfplumber.
+  - Scanned PDFs are rendered to images with PyMuPDF and OCR'd page by page.
+
+Endpoints:
+  GET /health          → {"status": "ok", "engine": "..."}
+  POST /ocr            → multipart file → {"text": "...", "method": "..."}
+"""
+import io
 import os
 import tempfile
-import logging
 from pathlib import Path
-from paddleocr import PaddleOCR
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s]: %(message)s",
-)
-logger = logging.getLogger("ocr-service")
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 
-app = FastAPI(title="PaddleOCR Service")
+app = FastAPI(title="Invoice OCR Microservice", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".webp", ".bmp", ".tif", ".tiff"}
 
-ocr_engine = None
+# ── Lazy engine loading ─────────────────────────────────────
+_engine = None
+_engine_name = None
 
 
-def get_engine():
-    global ocr_engine
-    if ocr_engine is None:
-        logger.info("Initializing PaddleOCR engine (first load downloads models)...")
-        ocr_engine = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False)
-        logger.info("PaddleOCR engine ready")
-    return ocr_engine
+def _load_engine():
+    """Load the best available OCR engine once (expensive import)."""
+    global _engine, _engine_name
+    if _engine is not None:
+        return _engine, _engine_name
+
+    try:
+        from paddleocr import PaddleOCR
+
+        _engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        _engine_name = "paddleocr"
+        return _engine, _engine_name
+    except Exception:
+        pass
+
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+
+        _engine = RapidOCR()
+        _engine_name = "rapidocr"
+        return _engine, _engine_name
+    except Exception:
+        pass
+
+    _engine = None
+    _engine_name = None
+    return None, None
 
 
-def run_ocr(image_path):
-    engine = get_engine()
-    result = engine.ocr(image_path, cls=True)
-    texts = []
-    if result and result[0]:
-        for line in result[0]:
-            texts.append(line[1][0])
-    return texts
+# ── OCR helpers ─────────────────────────────────────────────
+def _run_engine(image_path: Path):
+    engine, name = _load_engine()
+    if engine is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No OCR engine available. Install with: pip install -r requirements.txt",
+        )
+
+    lines = []
+    try:
+        if name == "paddleocr":
+            result = engine.ocr(str(image_path), cls=True)
+            for page in result:
+                if not page:
+                    continue
+                for box, (text, _conf) in page:
+                    if text and text.strip():
+                        lines.append(text.strip())
+        else:  # rapidocr
+            result, _elapse = engine(str(image_path))
+            if result:
+                for box, text, _score in result:
+                    if text and text.strip():
+                        lines.append(text.strip())
+    except Exception as exc:  # pragma: no cover - engine-specific failures
+        raise HTTPException(status_code=500, detail=f"OCR failed: {exc}") from exc
+
+    return "\n".join(lines), name
 
 
+def _extract_text_pdf(pdf_path: Path):
+    """Extract text from a PDF: direct parse first, OCR fallback for scans."""
+    text = ""
+    try:
+        import pdfplumber
+
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                text += page_text + "\n"
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"PDF parse failed: {exc}") from exc
+
+    if text.strip():
+        return text.strip(), "pdfplumber"
+
+    # Scanned PDF → render pages and OCR them
+    engine, name = _load_engine()
+    if engine is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Scanned PDF detected but no OCR engine available.",
+        )
+
+    import fitz  # PyMuPDF
+
+    extracted = []
+    with fitz.open(str(pdf_path)) as doc:
+        for page in doc:
+            pix = page.get_pixmap(dpi=200)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp.write(pix.tobytes("png"))
+                tmp_path = tmp.name
+            try:
+                page_text, _ = _run_engine(Path(tmp_path))
+                if page_text:
+                    extracted.append(page_text)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+
+    return "\n".join(extracted), f"{name} (scanned pdf)"
+
+
+# ── Routes ──────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "engine": "paddleocr"}
+    engine, name = _load_engine()
+    return JSONResponse({"status": "ok", "engine": name or "none"})
 
 
 @app.post("/ocr")
 async def ocr(file: UploadFile = File(...)):
-    if not file:
-        raise HTTPException(400, "No file provided")
+    ext = Path(file.filename or "file").suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{ext}'. Supported: {sorted(SUPPORTED_EXTENSIONS)}",
+        )
 
-    allowed = ["image/jpeg", "image/png", "application/pdf"]
-    if file.content_type not in allowed:
-        raise HTTPException(400, f"Unsupported type: {file.content_type}")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
 
-    contents = await file.read()
-    if not contents:
-        raise HTTPException(400, "Empty file")
-
-    ext = Path(file.filename).suffix if file.filename else ".jpg"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-    tmp.write(contents)
-    tmp_path = tmp.name
-    tmp.close()
-
-    logger.info(f"Processing: {file.filename} ({len(contents)} bytes)")
+    suffix = ".pdf" if ext == ".pdf" else ext
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
 
     try:
-        text_lines = []
-        method = "paddleocr"
-
-        if file.content_type == "application/pdf":
-            try:
-                import pdfplumber
-                parts = []
-                with pdfplumber.open(tmp_path) as pdf:
-                    for p in pdf.pages:
-                        t = p.extract_text()
-                        if t:
-                            parts.append(t)
-                if parts and "\n".join(parts).strip():
-                    os.unlink(tmp_path)
-                    logger.info(f"PDF via pdfplumber: {sum(len(p) for p in parts)} chars")
-                    return {"text": "\n".join(parts), "method": "pdfplumber"}
-            except Exception as e:
-                logger.warning(f"pdfplumber failed: {e}")
-
-            try:
-                import fitz
-                doc = fitz.open(tmp_path)
-                for pn in range(len(doc)):
-                    pix = doc[pn].get_pixmap(dpi=300)
-                    img = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                    img.write(pix.tobytes("png"))
-                    img.close()
-                    text_lines.extend(run_ocr(img.name))
-                    os.unlink(img.name)
-                doc.close()
-                method = "paddleocr_pdf"
-            except ImportError:
-                os.unlink(tmp_path)
-                raise HTTPException(500, "PDF deps (PyMuPDF) not installed")
+        if ext == ".pdf":
+            text, method = _extract_text_pdf(tmp_path)
         else:
-            text_lines = run_ocr(tmp_path)
+            text, method = _run_engine(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
-        os.unlink(tmp_path)
-
-        full_text = "\n".join(text_lines)
-        logger.info(f"OCR complete: {len(full_text)} chars, {len(text_lines)} lines")
-        return {"text": full_text, "method": method}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"OCR error: {e}")
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-        raise HTTPException(500, f"OCR failed: {e}")
+    return JSONResponse({"text": text, "method": method})
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("OCR_PORT", 8765))
+    import uvicorn
+
+    port = int(os.environ.get("OCR_PORT", "8765"))
     uvicorn.run(app, host="0.0.0.0", port=port)

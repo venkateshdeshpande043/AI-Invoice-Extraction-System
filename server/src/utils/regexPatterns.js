@@ -96,15 +96,15 @@ const regexPatterns = {
   // ---------------------------------------------------------------------------
   tax: [
     // "Tax (X%): amount" or "GST (X%): amount"
-    /(?:Tax|GST|VAT|Sales Tax)\s*(?:\([^)]*\))?[:\s]*([\d,]+\.?\d*)/i,
+    /(?:Tax|GST|VAT|Sales Tax)\s*(?:\([^)]*\))?[:\\s]*([\d,]+\.?\d*)/i,
     // "Total Tax:" or "Tax Amount:"
     /(?:Total Tax|Tax Amount)[:\s]*([\d,]+\.?\d*)/i,
     // CGST + SGST combined (add them in nlpService)
     /(?:CGST|SGST|IGST)[:\s]*([\d,]+\.?\d*)/i,
     // "Tax: amount"
-    /\bTax[:\s]+([\d,]+\.?\d*)/i,
+    /\bTax[:\\s]+([\d,]+\.?\d*)/i,
     // "VAT (X%): amount"
-    /\bVAT\s*(?:\([^)]*\))?[:\s]+([\d,]+\.?\d*)/i,
+    /\bVAT\s*(?:\([^)]*\))?[:\\s]+([\d,]+\.?\d*)/i,
   ],
 
   // ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ const regexPatterns = {
     // "Bulk Discount: -675.00" — capture the absolute value
     /(?:Discount|Bulk Discount|Trade Discount)[:\s]*-?\s*([\d,]+\.?\d*)/i,
     // "Discount (5%): -185.00"
-    /Discount\s*\([^)]*\)[:\s]*-?\s*([\d,]+\.?\d*)/i,
+    /Discount\s*\([^)]*\)[:\\s]*-?\s*([\d,]+\.?\d*)/i,
   ],
 
   // ---------------------------------------------------------------------------
@@ -202,80 +202,102 @@ function extractWithPatterns(text, patterns) {
 /**
  * Extract line items from tabular text.
  * Returns array of { description, quantity, unitPrice, amount }.
+ *
+ * Once a totals/tax line is seen, item parsing stops. Blank lines and page
+ * breaks do not end the table, so items on a second page are still captured.
  */
 function extractLineItems(text) {
   const items = [];
   const lines = text.split('\n');
-  let inTable = false;
+  let sawHeader = false;
+  let passedTotals = false;
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (!trimmed) {
-      if (inTable) inTable = false; // Blank line ends table
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Stop at the totals / tax / discount region — nothing after is a line item.
+    if (/^subtotal|^sub\s+total|^grand\s+total|^total|tax\s*[:(]|gst\s*[@(]|vat\s*\(|discount|igst|cgst|sgst/i.test(trimmed)) {
+      passedTotals = true;
       continue;
     }
+    if (passedTotals) continue;
 
     // Detect table header
-    if (/description|item|product|particulars|service|article|hsn/i.test(trimmed)
-        && /(?:qty|quantity|qté|rate|price|prix|rate|total)/i.test(trimmed)) {
-      inTable = true;
+    if (
+      !sawHeader &&
+      /description|item|product|particulars|service|article|hsn/i.test(trimmed) &&
+      /qty|quantity|qté|rate|price|prix|total/i.test(trimmed)
+    ) {
+      sawHeader = true;
       continue;
     }
 
-    // Stop at subtotal/total/tax lines
-    if (/^subtotal|^total|^sub\s+total|tax\s*[:\(]|gst|vat|discount|igst|cgst|sgst/i.test(trimmed)) {
-      inTable = false;
-      continue;
-    }
-
-    if (inTable) {
+    if (sawHeader) {
       const item = tryParseLineItem(trimmed);
-      if (item) {
-        items.push(item);
-      }
+      if (item) items.push(item);
     }
   }
 
-  // If no table detected, try standalone line parsing without table context
-  if (items.length === 0) {
+  // No table header found — try parsing candidate lines directly.
+  if (!sawHeader && items.length === 0) {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (/^subtotal|^total|^tax|^gst|^vat|^discount|^igst|^cgst|^sgst/i.test(trimmed)) continue;
-
+      if (/^subtotal|^sub\s+total|^grand\s+total|^total|^tax|^gst|^vat|^discount|^igst|^cgst|^sgst/i.test(trimmed)) continue;
       const item = tryParseLineItem(trimmed);
-      if (item) {
-        items.push(item);
-      }
+      if (item) items.push(item);
     }
   }
 
   return items;
 }
 
+/** Collapse whitespace and strip a leading part/SKU number (X-1000, SKU-12345). */
+function cleanDescription(desc) {
+  let d = String(desc).replace(/\s+/g, ' ').trim();
+  d = d.replace(/^[A-Za-z]{1,8}\d{0,4}-\d{2,}(?:-[A-Za-z0-9]+)?\s+/, '');
+  return d;
+}
+
+/** True when a token is a well-formed number (US, EU or plain). */
+function isNumericToken(tok) {
+  const s = String(tok).trim().replace(/[₹$€£]/g, '');
+  return (
+    /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s) ||
+    /^\d+,\d{2}$/.test(s) ||
+    /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s) ||
+    /^\d+,\d{3}$/.test(s) ||
+    /^\d+(\.\d+)?$/.test(s)
+  );
+}
+
 /**
  * Try to parse a single line as a line item.
+ * Numbers are parsed with parseAmount so currencies (€, £, $) and European
+ * comma-decimal formats are handled correctly.
  */
 function tryParseLineItem(line) {
+  // HSN-prefixed: HSNCODE  desc  qty  rate  amount (tried first so the
+  // HSN code is not swallowed into the description)
+  const hsnMatch = line.match(/^\d{6,8}\s+(.+?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)$/);
+  if (hsnMatch) {
+    return {
+      description: cleanDescription(hsnMatch[1]),
+      quantity: parseAmount(hsnMatch[2]),
+      unitPrice: parseAmount(hsnMatch[3]),
+      amount: parseAmount(hsnMatch[4]),
+    };
+  }
+
   // Multi-space separated: desc    qty    rate    amount
   const multiSpaceMatch = line.match(/^(.+?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)$/);
   if (multiSpaceMatch) {
     return {
-      description: multiSpaceMatch[1].trim(),
-      quantity: parseFloat(multiSpaceMatch[2]) || 0,
-      unitPrice: parseFloat(multiSpaceMatch[3]) || 0,
-      amount: parseFloat(multiSpaceMatch[4]) || 0,
-    };
-  }
-
-  // HSN-prefixed: HSNCODE  desc  qty  rate  amount
-  const hsnMatch = line.match(/^\d{6,8}\s+(.+?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)\s{2,}(\d+(?:\.\d+)?)$/);
-  if (hsnMatch) {
-    return {
-      description: hsnMatch[1].trim(),
-      quantity: parseFloat(hsnMatch[2]) || 0,
-      unitPrice: parseFloat(hsnMatch[3]) || 0,
-      amount: parseFloat(hsnMatch[4]) || 0,
+      description: cleanDescription(multiSpaceMatch[1]),
+      quantity: parseAmount(multiSpaceMatch[2]),
+      unitPrice: parseAmount(multiSpaceMatch[3]),
+      amount: parseAmount(multiSpaceMatch[4]),
     };
   }
 
@@ -283,20 +305,16 @@ function tryParseLineItem(line) {
   const parts = line.split(/\s+/);
   if (parts.length >= 4) {
     const lastThree = parts.slice(-3);
-    const qty = parseFloat(lastThree[0]);
-    const rate = parseFloat(lastThree[1]);
-    const amount = parseFloat(lastThree[2]);
-
-    if (!isNaN(qty) && !isNaN(rate) && !isNaN(amount) && qty > 0 && rate >= 0) {
-      const desc = parts.slice(0, -3).join(' ');
-      // Heuristic: description must have at least one letter
-      if (/[a-zA-Z]/.test(desc) && desc.length > 0) {
-        return {
-          description: desc,
-          quantity: qty,
-          unitPrice: rate,
-          amount,
-        };
+    if (isNumericToken(lastThree[0]) && isNumericToken(lastThree[1]) && isNumericToken(lastThree[2])) {
+      const qty = parseAmount(lastThree[0]);
+      const rate = parseAmount(lastThree[1]);
+      const amount = parseAmount(lastThree[2]);
+      if (qty > 0 && rate >= 0) {
+        const desc = cleanDescription(parts.slice(0, -3).join(' '));
+        // Heuristic: description must have at least one letter
+        if (/[a-zA-Z]/.test(desc) && desc.length > 0) {
+          return { description: desc, quantity: qty, unitPrice: rate, amount };
+        }
       }
     }
   }
@@ -306,21 +324,22 @@ function tryParseLineItem(line) {
 
 /**
  * Parse a monetary amount string to a number.
- * Handles European format (1.255,00) and standard (1,255.00).
+ * Handles European format (1.255,00 / 701,00) and standard (1,255.00 / 2,000).
  */
 function parseAmount(str) {
-  if (!str) return 0;
-  let cleaned = str.trim().replace(/[,₹$€£]/g, '');
+  if (str === null || str === undefined || str === '') return 0;
+  let cleaned = String(str).trim().replace(/[₹$€£]/g, '').trim();
 
-  // Detect European format: 1.255,00 (dot as thousand sep, comma as decimal)
+  // European: dot = thousands, comma = decimal (1.255,00 | 3.505,00 | 701,00)
   if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(cleaned) || /^\d+,\d{2}$/.test(cleaned)) {
     cleaned = cleaned.replace(/\./g, '').replace(',', '.');
   } else {
+    // US/IN: comma = thousands (1,255.00 | 16,500.00 | 2,000)
     cleaned = cleaned.replace(/,/g, '');
   }
 
   const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
+  return Number.isNaN(num) ? 0 : num;
 }
 
 module.exports = {

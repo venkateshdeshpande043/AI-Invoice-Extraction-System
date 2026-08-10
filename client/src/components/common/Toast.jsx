@@ -2,10 +2,10 @@ import PropTypes from 'prop-types';
 import { useEffect } from 'react';
 
 const types = {
-  success: { bg: 'bg-green-50 border-green-400 text-green-800', icon: '✓' },
-  error: { bg: 'bg-red-50 border-red-400 text-red-800', icon: '✕' },
-  info: { bg: 'bg-blue-50 border-blue-400 text-blue-800', icon: 'ℹ' },
-  warning: { bg: 'bg-yellow-50 border-yellow-400 text-yellow-800', icon: '⚠' },
+  success: { bg: 'bg-emerald-50 border-emerald-200 text-emerald-900', icon: '✓' },
+  error: { bg: 'bg-rose-50 border-rose-200 text-rose-900', icon: '✕' },
+  info: { bg: 'bg-ivory border-sand text-espresso', icon: 'ℹ' },
+  warning: { bg: 'bg-amber-50 border-amber-200 text-amber-900', icon: '⚠' },
 };
 
 function Toast({ message, type = 'info', isVisible, onClose, duration = 4000 }) {
@@ -22,7 +22,7 @@ function Toast({ message, type = 'info', isVisible, onClose, duration = 4000 }) 
 
   return (
     <div className="fixed top-4 right-4 z-[100] animate-slide-in">
-      <div className={`flex items-center gap-3 px-4 py-3 border rounded-lg shadow-lg ${config.bg}`}>
+      <div className={`flex items-center gap-3 px-4 py-3 border rounded-lg shadow-lift ${config.bg}`}>
         <span className="font-bold text-lg leading-none">{config.icon}</span>
         <p className="text-sm font-medium">{message}</p>
         {onClose && (

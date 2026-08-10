@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/layout/DashboardLayout';
+import PageHeader from '../components/common/PageHeader';
 import FileUploadZone from '../components/upload/FileUploadZone';
 import FilePreview from '../components/upload/FilePreview';
 import UploadProgress from '../components/upload/UploadProgress';
@@ -49,7 +50,11 @@ function UploadPage() {
       />
 
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold text-gray-900">Upload Invoice</h1>
+        <PageHeader
+          eyebrow="New document"
+          title="Upload Invoice"
+          subtitle="PaddleOCR extracts the text; the NLP engine parses it into structured fields."
+        />
 
         {!file ? (
           <FileUploadZone onFileSelect={selectFile} error={fileError} />
@@ -57,9 +62,7 @@ function UploadPage() {
           <>
             <FilePreview file={file} preview={preview} />
 
-            {uploading ? (
-              <UploadProgress progress={progress} fileName={file.name} />
-            ) : progress > 0 && progress < 100 ? (
+            {uploading || (progress > 0 && progress < 100) ? (
               <UploadProgress progress={progress} fileName={file.name} />
             ) : (
               <div className="flex gap-3">
@@ -74,20 +77,20 @@ function UploadPage() {
           </>
         )}
 
-        <div className="card">
-          <h3 className="font-medium text-gray-900 mb-2">Supported Formats</h3>
-          <ul className="text-sm text-gray-600 space-y-1">
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+        <div className="card p-6">
+          <h3 className="font-medium text-espresso mb-3">Supported formats</h3>
+          <ul className="text-sm text-mocha space-y-2">
+            <li className="flex items-center gap-2.5">
+              <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full" />
               JPEG / JPG — up to 10 MB
             </li>
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+            <li className="flex items-center gap-2.5">
+              <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full" />
               PNG — up to 10 MB
             </li>
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-              PDF — up to 10 MB
+            <li className="flex items-center gap-2.5">
+              <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full" />
+              PDF — up to 10 MB (scanned pages are rendered and OCR'd)
             </li>
           </ul>
         </div>

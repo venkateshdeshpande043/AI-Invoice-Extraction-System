@@ -43,6 +43,20 @@ export function useInvoices() {
     setInvoices((prev) => prev.filter((inv) => inv._id !== id));
   };
 
+  const updatePayment = async (id, payload) => {
+    const res = await api.patch(`/invoices/${id}/payment`, payload);
+    return res.data.data;
+  };
+
+  const exportList = async (filters = {}) => {
+    const params = { format: 'csv', ...filters };
+    Object.keys(params).forEach((key) => {
+      if (!params[key]) delete params[key];
+    });
+    const res = await api.get('/invoices/export', { params, responseType: 'blob' });
+    return res.data;
+  };
+
   return {
     invoices,
     pagination,
@@ -52,5 +66,7 @@ export function useInvoices() {
     getInvoice,
     uploadInvoice,
     deleteInvoice,
+    updatePayment,
+    exportList,
   };
 }

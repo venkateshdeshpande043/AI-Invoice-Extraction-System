@@ -6,6 +6,10 @@ import DashboardPage from '../pages/DashboardPage';
 import UploadPage from '../pages/UploadPage';
 import InvoiceListPage from '../pages/InvoiceListPage';
 import InvoiceDetailPage from '../pages/InvoiceDetailPage';
+import VendorsPage from '../pages/VendorsPage';
+import VendorDetailPage from '../pages/VendorDetailPage';
+import GenerateInvoicePage from '../pages/GenerateInvoicePage';
+import AskAIPage from '../pages/AskAIPage';
 import NotFoundPage from '../pages/NotFoundPage';
 
 function AppRoutes() {
@@ -30,6 +34,22 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/generate"
+        element={
+          <ProtectedRoute>
+            <GenerateInvoicePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ask"
+        element={
+          <ProtectedRoute>
+            <AskAIPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/invoices"
         element={
           <ProtectedRoute>
@@ -42,6 +62,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <InvoiceDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/vendors"
+        element={
+          <ProtectedRoute>
+            <VendorsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/vendors/:name"
+        element={
+          <ProtectedRoute>
+            <VendorDetailPage />
           </ProtectedRoute>
         }
       />

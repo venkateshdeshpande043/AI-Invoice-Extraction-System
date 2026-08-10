@@ -33,10 +33,17 @@ function buildSortQuery(sortBy, sortOrder) {
   return { [field]: order };
 }
 
+/** Round money to 2 decimal places (avoids floating-point noise). */
+function roundMoney(value) {
+  const n = Number(value) || 0;
+  return Math.round(n * 100) / 100;
+}
+
 module.exports = {
   generateFilename,
   getFileExtension,
   sanitizeFileName,
   parsePagination,
   buildSortQuery,
+  roundMoney,
 };

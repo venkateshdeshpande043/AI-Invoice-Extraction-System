@@ -7,8 +7,8 @@ function EmptyState({ title, message, actionLabel, onAction, icon }) {
       {icon ? (
         <img src={icon} alt="" className="w-24 h-24 mb-4 opacity-60" />
       ) : (
-        <div className="w-16 h-16 mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mb-4 bg-beige border border-sand rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-taupe" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -18,8 +18,8 @@ function EmptyState({ title, message, actionLabel, onAction, icon }) {
           </svg>
         </div>
       )}
-      <h3 className="text-lg font-medium text-gray-900 mb-1">{title}</h3>
-      {message && <p className="text-sm text-gray-500 mb-4 text-center max-w-sm">{message}</p>}
+      <h3 className="text-lg font-medium text-espresso mb-1">{title}</h3>
+      {message && <p className="text-sm text-mocha mb-4 text-center max-w-sm">{message}</p>}
       {actionLabel && onAction && (
         <Button variant="primary" onClick={onAction}>
           {actionLabel}

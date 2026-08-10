@@ -1,5 +1,4 @@
 const logger = require('../config/logger');
-const env = require('../config/env');
 
 function errorMiddleware(err, _req, res, _next) {
   logger.error(`${err.message}${err.stack ? '\n' + err.stack : ''}`);

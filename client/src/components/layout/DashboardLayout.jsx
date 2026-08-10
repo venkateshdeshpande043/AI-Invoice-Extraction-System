@@ -5,14 +5,12 @@ import ServiceStatusBanner from '../common/ServiceStatusBanner';
 
 function DashboardLayout({ children }) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-cream">
       <ServiceStatusBanner />
       <Navbar />
       <div className="flex">
         <Sidebar />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
-          {children}
-        </main>
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
       </div>
     </div>
   );

@@ -24,13 +24,15 @@ function Modal({ isOpen, onClose, title, children, size = 'md' }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
-      <div className={`relative bg-white rounded-xl shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      <div className="fixed inset-0 bg-espresso/40 backdrop-blur-[1px]" onClick={onClose} />
+      <div
+        className={`relative bg-white rounded-lg border border-sand shadow-lift w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto`}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-sand/70">
+          <h2 className="text-lg font-semibold text-espresso">{title}</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+            className="text-taupe hover:text-espresso transition-colors p-1 rounded-md hover:bg-ivory"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -38,7 +40,7 @@ function Modal({ isOpen, onClose, title, children, size = 'md' }) {
             </svg>
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-5">{children}</div>
       </div>
     </div>
   );

@@ -14,6 +14,9 @@ const AppError = require('./src/utils/AppError');
 const authRoutes = require('./src/routes/authRoutes');
 const invoiceRoutes = require('./src/routes/invoiceRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const vendorRoutes = require('./src/routes/vendorRoutes');
+const aiRoutes = require('./src/routes/aiRoutes');
+const insightRoutes = require('./src/routes/insightRoutes');
 
 const app = express();
 
@@ -48,6 +51,9 @@ app.use('/api', dbCheck);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/invoices', apiLimiter, invoiceRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
+app.use('/api/vendors', apiLimiter, vendorRoutes);
+app.use('/api/ai', apiLimiter, aiRoutes);
+app.use('/api/insights', apiLimiter, insightRoutes);
 
 app.use('/api/health', async (_req, res) => {
   const dbConnected = require('./src/config/db').getConnectionStatus();

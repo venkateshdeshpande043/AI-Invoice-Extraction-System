@@ -3,23 +3,30 @@ import ServiceStatusBanner from '../components/common/ServiceStatusBanner';
 
 function AuthLayout({ children, title, subtitle }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-blue-100">
+    <div className="min-h-screen bg-cream flex flex-col">
       <ServiceStatusBanner />
-      <div className="flex items-center justify-center p-4 min-h-[calc(100vh-40px)]">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-12 h-12 bg-espresso rounded-md shadow-lift mb-5">
+              <svg className="w-6 h-6 text-ivory" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+            </div>
+            <p className="eyebrow mb-2">Invoice AI</p>
+            <h1 className="text-3xl font-semibold text-espresso">{title}</h1>
+            {subtitle && <p className="text-mocha mt-2 text-sm">{subtitle}</p>}
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
+          <div className="bg-white rounded-lg border border-sand shadow-lift p-8">{children}</div>
+          <p className="text-center text-xs text-taupe mt-6">
+            Secure JWT authentication · Offline PaddleOCR extraction
+          </p>
         </div>
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          {children}
-        </div>
-      </div>
       </div>
     </div>
   );

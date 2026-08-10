@@ -104,4 +104,54 @@ function escapeCsv(value) {
   return str;
 }
 
-module.exports = { exportAsJSON, exportAsCSV };
+/** Bulk CSV export for a list of invoices (used by /api/invoices/export). */
+function exportManyAsCSV(invoices) {
+  const headers = [
+    'InvoiceNumber', 'VendorName', 'CustomerName', 'InvoiceDate', 'DueDate',
+    'GST/VAT Number', 'GSTRate', 'Currency', 'Subtotal', 'Discount',
+    'Tax', 'TotalAmount', 'PONumber', 'Status', 'PaymentStatus',
+    'AmountPaid', 'Balance', 'ItemCount',
+  ];
+
+  const rows = invoices.map((inv) => {
+    const base = prepareExportData(inv);
+    const balance = Math.max((Number(inv.totalAmount) || 0) - (Number(inv.amountPaid) || 0), 0);
+    return [
+      escapeCsv(base.invoiceNumber),
+      escapeCsv(base.vendorName),
+      escapeCsv(base.customerName),
+      base.invoiceDate || '',
+      base.dueDate || '',
+      escapeCsv(base.gstVatNumber),
+      base.gstRate,
+      base.currency,
+      base.subtotal,
+      base.discount,
+      base.tax,
+      base.totalAmount,
+      escapeCsv(base.poNumber),
+      base.status,
+      inv.paymentStatus || 'unpaid',
+      inv.amountPaid || 0,
+      balance,
+      (inv.lineItems || []).length,
+    ];
+  });
+
+  return {
+    contentType: 'text/csv',
+    filename: 'invoices-export.csv',
+    content: [headers.join(','), ...rows.map((row) => row.join(','))].join('\n'),
+  };
+}
+
+/** Bulk JSON export for a list of invoices. */
+function exportManyAsJSON(invoices) {
+  return {
+    contentType: 'application/json',
+    filename: 'invoices-export.json',
+    content: JSON.stringify(invoices.map(prepareExportData), null, 2),
+  };
+}
+
+module.exports = { exportAsJSON, exportAsCSV, exportManyAsCSV, exportManyAsJSON };

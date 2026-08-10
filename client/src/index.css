@@ -3,40 +3,72 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
-    @apply min-h-screen;
+    @apply min-h-screen bg-cream text-espresso font-sans;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    @apply bg-taupe/40;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-lg font-medium
-      hover:bg-primary-700 transition-colors duration-200
-      focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
-      disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 bg-espresso text-ivory px-4 py-2 rounded-md font-medium text-sm
+      hover:bg-brown active:bg-espresso transition-colors duration-150
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-taupe focus-visible:ring-offset-2 focus-visible:ring-offset-cream
+      disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium
-      hover:bg-gray-300 transition-colors duration-200
-      focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2
-      disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 border border-sand bg-white text-mocha px-4 py-2 rounded-md font-medium text-sm
+      hover:border-taupe hover:text-espresso hover:bg-ivory/60 transition-colors duration-150
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-taupe focus-visible:ring-offset-2
+      disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .btn-danger {
-    @apply bg-red-600 text-white px-4 py-2 rounded-lg font-medium
-      hover:bg-red-700 transition-colors duration-200
-      focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2
-      disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 bg-rust text-cream px-4 py-2 rounded-md font-medium text-sm
+      hover:bg-brown transition-colors duration-150
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-rust focus-visible:ring-offset-2
+      disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg
-      focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
-      placeholder-gray-400 transition-colors duration-200;
+    @apply w-full px-3 py-2 border border-sand rounded-md bg-white text-espresso placeholder-mocha/50 text-sm
+      focus:outline-none focus:border-brown focus:ring-2 focus:ring-taupe/30 transition-colors duration-150;
   }
 
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-lg border border-sand/70 shadow-soft;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-taupe;
+  }
+
+  .table-head {
+    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-taupe whitespace-nowrap;
+  }
+
+  .tabnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide whitespace-nowrap;
   }
 }
